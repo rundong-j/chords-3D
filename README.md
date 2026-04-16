@@ -6,10 +6,14 @@ A Mithril.js + Three.js web app that renders a Tonnetz projected onto a torus su
 
 - 3D torus scene with orbit controls
 - Tonnetz graph embedded on torus surface
-- Curved interval edges (5ths, minor 3rds, major 3rds)
-- Pitch-class labels rendered on the torus
-- Visibility culling for labels based on camera and torus occlusion
+- Curved interval edges (5ths, minor 3rds, major 3rds) rendered with thick `LineSegments2` lines
+- Pitch-class labels rendered directly on the torus surface
+- Label visibility culling based on camera-facing check + torus occlusion
+- Camera-aware label orientation for improved readability in tilted views
 - UI toggles for interval classes and notation style
+- Interactive sound:
+  - click a pitch label to play its single-note tone
+  - click a Tonnetz triangle on the torus to play its triad chord
 
 ## Tech Stack
 
@@ -63,5 +67,7 @@ Use the network URL shown by Vite (for example `http://10.0.0.5:5173`).
 ## Notes
 
 - Current Tonnetz grid uses 12 steps around the fifths direction and 8 around the minor-third direction.
-- Thick lines are rendered with Three.js `LineSegments2` (`LineMaterial`).
+- Tonnetz rows are staggered in torus parameter space to make triangles appear closer to isosceles.
+- Edge/label layering is tuned so torus is underneath, lines float just above the surface, and labels render above lines.
+- Thick lines are rendered with Three.js `LineSegments2` + `LineMaterial`.
 

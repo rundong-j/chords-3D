@@ -2,6 +2,7 @@
 
 export const TORUS_MAJOR_RADIUS = 0.9;
 export const TORUS_TUBE_RADIUS = 0.32;
+export const FIFTH_RING_U_OFFSET_PER_ROW = 0.5;
 
 export function pc(n) {
   return ((n % 12) + 12) % 12;
@@ -140,9 +141,14 @@ export function runTonnetzDevAssertions(graph) {
 /**
  * Three.js TorusGeometry matches: u = tubular (around big ring), v = radial (around tube).
  */
-export function surfacePointOnTorus(i, j, iSize, jSize, out) {
-  const u = (i / iSize) * Math.PI * 2;
+function torusAngles(i, j, iSize, jSize) {
+  const u = ((i + j * FIFTH_RING_U_OFFSET_PER_ROW) / iSize) * Math.PI * 2;
   const v = (j / jSize) * Math.PI * 2;
+  return { u, v };
+}
+
+export function surfacePointOnTorus(i, j, iSize, jSize, out) {
+  const { u, v } = torusAngles(i, j, iSize, jSize);
   const R = TORUS_MAJOR_RADIUS;
   const r = TORUS_TUBE_RADIUS;
   const cx = Math.cos(u);
@@ -154,8 +160,7 @@ export function surfacePointOnTorus(i, j, iSize, jSize, out) {
 }
 
 export function surfaceNormalOnTorus(i, j, iSize, jSize, out) {
-  const u = (i / iSize) * Math.PI * 2;
-  const v = (j / jSize) * Math.PI * 2;
+  const { u, v } = torusAngles(i, j, iSize, jSize);
   const R = TORUS_MAJOR_RADIUS;
   const r = TORUS_TUBE_RADIUS;
   const cx = Math.cos(u);
@@ -175,8 +180,7 @@ export function surfaceNormalOnTorus(i, j, iSize, jSize, out) {
  * (matches PlaneGeometry lying in XY with +Z = outward).
  */
 export function surfaceFrameOnTorus(i, j, iSize, jSize, outX, outY, outZ) {
-  const u = (i / iSize) * Math.PI * 2;
-  const v = (j / jSize) * Math.PI * 2;
+  const { u, v } = torusAngles(i, j, iSize, jSize);
   const R = TORUS_MAJOR_RADIUS;
   const r = TORUS_TUBE_RADIUS;
   const cu = Math.cos(u);

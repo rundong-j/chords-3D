@@ -7,6 +7,7 @@ import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import {
   buildTonnetzGraph,
   formatPitchClass,
+  pc as mod12,
   runTonnetzDevAssertions,
   surfaceFrameOnTorus,
   surfaceNormalOnTorus,
@@ -107,6 +108,8 @@ function TorusScene() {
   let edgeLineGroups;
   let updateLabelTexts;
   let labelEntries = [];
+  let audioCtx;
+  let pointerHandler;
 
   const sceneState = {
     autoRotate: false,
@@ -123,14 +126,15 @@ function TorusScene() {
   const nA = new THREE.Vector3();
   const nB = new THREE.Vector3();
   const nLabel = new THREE.Vector3();
-  const vI = new THREE.Vector3();
-  const vJ = new THREE.Vector3();
+  const worldUp = new THREE.Vector3(0, 0, 1);
+  const cameraRight = new THREE.Vector3();
   const matFrame = new THREE.Matrix4();
   const viewToLabel = new THREE.Vector3();
   const labelWorldPos = new THREE.Vector3();
   const labelWorldNormal = new THREE.Vector3();
   const rayDir = new THREE.Vector3();
   const raycaster = new THREE.Raycaster();
+  const pointerNdc = new THREE.Vector2();
   const LABEL_OCCLUSION_EPS = 0.01;
 
   function resize() {
@@ -156,8 +160,31 @@ function TorusScene() {
     }
 
     controls.update();
+    cameraRight.setFromMatrixColumn(camera.matrixWorld, 0).normalize();
 
     for (const entry of labelEntries) {
+      surfacePointOnTorus(entry.i, entry.j, GRID_I, GRID_J, vPos);
+      surfaceNormalOnTorus(entry.i, entry.j, GRID_I, GRID_J, nLabel);
+      vPos.addScaledVector(nLabel, LABEL_SURFACE_EPS);
+
+      // Keep labels readable in the current tilted view:
+      // project camera-horizontal axis onto the local tangent plane.
+      vx.copy(cameraRight);
+      vx.addScaledVector(nLabel, -vx.dot(nLabel));
+      if (vx.lengthSq() < 1e-9) {
+        vx.copy(worldUp);
+        vx.addScaledVector(nLabel, -vx.dot(nLabel));
+      }
+      vx.normalize();
+      vz.copy(nLabel).normalize();
+      vy.crossVectors(vz, vx).normalize();
+      vy.negate();
+
+      matFrame.makeBasis(vx, vy, vz);
+      matFrame.setPosition(vPos);
+      entry.mesh.matrix.copy(matFrame);
+      entry.mesh.matrixWorldNeedsUpdate = true;
+
       entry.mesh.getWorldPosition(labelWorldPos);
       entry.mesh.getWorldDirection(labelWorldNormal);
       viewToLabel.subVectors(camera.position, labelWorldPos).normalize();
@@ -187,6 +214,51 @@ function TorusScene() {
     edgeLineGroups.p5.visible = sceneState.edges.p5;
     edgeLineGroups.m3.visible = sceneState.edges.m3;
     edgeLineGroups.M3.visible = sceneState.edges.M3;
+  }
+
+  function pitchFreqFromPc(pc) {
+    // Map pitch classes to octave 4 with A4=440Hz.
+    const midi = 60 + ((pc % 12) + 12) % 12;
+    return 440 * Math.pow(2, (midi - 69) / 12);
+  }
+
+  function playPitch(pc) {
+    if (!audioCtx) audioCtx = new AudioContext();
+    if (audioCtx.state === "suspended") {
+      audioCtx.resume();
+    }
+    const now = audioCtx.currentTime;
+    const gain = audioCtx.createGain();
+    const osc = audioCtx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(pitchFreqFromPc(pc), now);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.18, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(now);
+    osc.stop(now + 0.46);
+  }
+
+  function playChord(pcs) {
+    if (!audioCtx) audioCtx = new AudioContext();
+    if (audioCtx.state === "suspended") {
+      audioCtx.resume();
+    }
+    const now = audioCtx.currentTime;
+    const uniquePcs = [...new Set(pcs.map((p) => mod12(p)))];
+    for (const pc of uniquePcs) {
+      const gain = audioCtx.createGain();
+      const osc = audioCtx.createOscillator();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(pitchFreqFromPc(pc), now);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.14, now + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.65);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(now);
+      osc.stop(now + 0.66);
+    }
   }
 
   return {
@@ -295,29 +367,8 @@ function TorusScene() {
         surfaceNormalOnTorus(n.i, n.j, GRID_I, GRID_J, nLabel);
         vPos.addScaledVector(nLabel, LABEL_SURFACE_EPS);
 
-        // Keep text orientation coherent with lattice reading directions:
-        // +X follows circle-of-fifths (i+1), +Y follows minor-3rds (j+1).
-        surfacePointOnTorus((n.i + 1) % GRID_I, n.j, GRID_I, GRID_J, vI);
-        vx.subVectors(vI, vPos);
-        vx.addScaledVector(nLabel, -vx.dot(nLabel));
-
-        surfacePointOnTorus(n.i, (n.j + 1) % GRID_J, GRID_I, GRID_J, vJ);
-        vy.subVectors(vJ, vPos);
-        vy.addScaledVector(nLabel, -vy.dot(nLabel));
-        vy.addScaledVector(vx, -vy.dot(vx));
-
-        if (vx.lengthSq() < 1e-9 || vy.lengthSq() < 1e-9) {
-          surfaceFrameOnTorus(n.i, n.j, GRID_I, GRID_J, vx, vy, vz);
-        } else {
-          vx.normalize();
-          vy.normalize();
-          vz.copy(nLabel).normalize();
-          if (vx.clone().cross(vy).dot(vz) < 0) {
-            vy.negate();
-          }
-        }
-
-        // Global vertical flip for all label glyph orientation.
+        // Initial orientation only; updated dynamically each frame in loop().
+        surfaceFrameOnTorus(n.i, n.j, GRID_I, GRID_J, vx, vy, vz);
         vy.negate();
 
         matFrame.makeBasis(vx, vy, vz);
@@ -327,7 +378,7 @@ function TorusScene() {
         mesh.matrixAutoUpdate = false;
         mesh.renderOrder = 5;
         tonnetzRoot.add(mesh);
-        labelEntries.push({ draw, pc: n.pc, mesh });
+        labelEntries.push({ draw, pc: n.pc, mesh, i: n.i, j: n.j });
       }
 
       updateLabelTexts = () => {
@@ -360,6 +411,43 @@ function TorusScene() {
       controls.target.set(0, 0, 0);
       controls.update();
 
+      pointerHandler = (ev) => {
+        const rect = renderer.domElement.getBoundingClientRect();
+        pointerNdc.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+        pointerNdc.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+        raycaster.setFromCamera(pointerNdc, camera);
+        const labelMeshes = labelEntries.map((entry) => entry.mesh);
+        const hits = raycaster.intersectObjects(labelMeshes, false);
+        if (hits.length > 0) {
+          const hit = labelEntries.find((entry) => entry.mesh === hits[0].object);
+          if (hit) playPitch(hit.pc);
+          return;
+        }
+
+        const torusHits = raycaster.intersectObject(torus, false);
+        if (torusHits.length === 0 || !torusHits[0].uv) return;
+        const uv = torusHits[0].uv;
+        const iRaw = uv.x * GRID_I;
+        const jRaw = uv.y * GRID_J;
+        const i0 = Math.floor(iRaw);
+        const j0 = Math.floor(jRaw);
+        const fi = iRaw - i0;
+        const fj = jRaw - j0;
+
+        const wrapI = (x) => ((x % GRID_I) + GRID_I) % GRID_I;
+        const wrapJ = (x) => ((x % GRID_J) + GRID_J) % GRID_J;
+        const key = (i, j) => `${wrapI(i)},${wrapJ(j)}`;
+        const getPc = (i, j) => graph.nodes.get(key(i, j)).pc;
+
+        // Triangles split by the Tonnetz diagonal from (i+1,j) to (i,j+1).
+        const chordPcs =
+          fi + fj <= 1
+            ? [getPc(i0, j0), getPc(i0 + 1, j0), getPc(i0, j0 + 1)]
+            : [getPc(i0 + 1, j0 + 1), getPc(i0 + 1, j0), getPc(i0, j0 + 1)];
+        playChord(chordPcs);
+      };
+      renderer.domElement.addEventListener("pointerdown", pointerHandler);
+
       window.addEventListener("resize", resize);
       resize();
       loop();
@@ -377,10 +465,17 @@ function TorusScene() {
         torus.material.dispose();
       }
       if (renderer) {
+        if (pointerHandler) {
+          renderer.domElement.removeEventListener("pointerdown", pointerHandler);
+        }
         renderer.dispose();
         if (renderer.domElement.parentNode === host) {
           host.removeChild(renderer.domElement);
         }
+      }
+      if (audioCtx) {
+        audioCtx.close();
+        audioCtx = undefined;
       }
     },
     view: () =>
