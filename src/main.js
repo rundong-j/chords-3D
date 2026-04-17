@@ -20,6 +20,12 @@ const ROOT_PC = 0;
 
 const LABEL_PLANE_W = 0.19;
 const LABEL_PLANE_H = 0.12;
+/** Default / idle label ink on canvas texture (torus surface reads as light). */
+const LABEL_TEXT_NORMAL = "#111111";
+/** Brief tap feedback when a note or chord is triggered. */
+const LABEL_TEXT_ACTIVE = "#0d9488";
+const LABEL_FLASH_NOTE_MS = 380;
+const LABEL_FLASH_CHORD_MS = 520;
 const LINE_SURFACE_EPS = 0.002;
 const LABEL_SURFACE_EPS = 0.002;
 const EDGE_CURVE_STEPS = 12;
@@ -67,7 +73,7 @@ function makeCanvasLabelPlane(initialText) {
   const geom = new THREE.PlaneGeometry(LABEL_PLANE_W, LABEL_PLANE_H);
   const mesh = new THREE.Mesh(geom, mat);
 
-  function draw(text) {
+  function draw(text, fillStyle = LABEL_TEXT_NORMAL) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.font = "700 110px Arial, Helvetica, sans-serif";
     ctx.textAlign = "center";
@@ -83,7 +89,7 @@ function makeCanvasLabelPlane(initialText) {
     const desc = Math.max(descRaw, 6);
     const textH = asc + desc;
     const baselineY = canvas.height / 2 - textH / 2 + asc;
-    ctx.fillStyle = "#111111";
+    ctx.fillStyle = fillStyle;
     ctx.fillText(t, canvas.width / 2, baselineY);
     tex.needsUpdate = true;
   }
@@ -108,6 +114,8 @@ function TorusScene() {
   let edgeLineGroups;
   let updateLabelTexts;
   let labelEntries = [];
+  /** Pending `setTimeout` ids for label tap feedback (cleared on redraw / unmount). */
+  let labelFlashTimeouts = new Map();
   let audioCtx;
   let pointerHandler;
 
@@ -381,9 +389,25 @@ function TorusScene() {
         labelEntries.push({ draw, pc: n.pc, mesh, i: n.i, j: n.j });
       }
 
+      function flashLabelEntry(entry, durationMs) {
+        if (!entry) return;
+        const prev = labelFlashTimeouts.get(entry);
+        if (prev) clearTimeout(prev);
+        entry.draw(formatPitchClass(entry.pc, sceneState.notation), LABEL_TEXT_ACTIVE);
+        const id = setTimeout(() => {
+          entry.draw(formatPitchClass(entry.pc, sceneState.notation), LABEL_TEXT_NORMAL);
+          labelFlashTimeouts.delete(entry);
+        }, durationMs);
+        labelFlashTimeouts.set(entry, id);
+      }
+
       updateLabelTexts = () => {
+        for (const id of labelFlashTimeouts.values()) {
+          clearTimeout(id);
+        }
+        labelFlashTimeouts.clear();
         for (const { draw, pc } of labelEntries) {
-          draw(formatPitchClass(pc, sceneState.notation));
+          draw(formatPitchClass(pc, sceneState.notation), LABEL_TEXT_NORMAL);
         }
       };
 
@@ -420,7 +444,10 @@ function TorusScene() {
         const hits = raycaster.intersectObjects(labelMeshes, false);
         if (hits.length > 0) {
           const hit = labelEntries.find((entry) => entry.mesh === hits[0].object);
-          if (hit) playPitch(hit.pc);
+          if (hit) {
+            flashLabelEntry(hit, LABEL_FLASH_NOTE_MS);
+            playPitch(hit.pc);
+          }
           return;
         }
 
@@ -444,6 +471,22 @@ function TorusScene() {
           fi + fj <= 1
             ? [getPc(i0, j0), getPc(i0 + 1, j0), getPc(i0, j0 + 1)]
             : [getPc(i0 + 1, j0 + 1), getPc(i0 + 1, j0), getPc(i0, j0 + 1)];
+        const triVertices =
+          fi + fj <= 1
+            ? [
+                [wrapI(i0), wrapJ(j0)],
+                [wrapI(i0 + 1), wrapJ(j0)],
+                [wrapI(i0), wrapJ(j0 + 1)],
+              ]
+            : [
+                [wrapI(i0 + 1), wrapJ(j0 + 1)],
+                [wrapI(i0 + 1), wrapJ(j0)],
+                [wrapI(i0), wrapJ(j0 + 1)],
+              ];
+        for (const [ti, tj] of triVertices) {
+          const corner = labelEntries.find((e) => e.i === ti && e.j === tj);
+          flashLabelEntry(corner, LABEL_FLASH_CHORD_MS);
+        }
         playChord(chordPcs);
       };
       renderer.domElement.addEventListener("pointerdown", pointerHandler);
@@ -453,6 +496,10 @@ function TorusScene() {
       loop();
     },
     onremove() {
+      for (const id of labelFlashTimeouts.values()) {
+        clearTimeout(id);
+      }
+      labelFlashTimeouts.clear();
       window.removeEventListener("resize", resize);
       cancelAnimationFrame(raf);
       controls?.dispose();
