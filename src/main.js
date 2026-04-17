@@ -12,6 +12,7 @@ import {
   surfaceFrameOnTorus,
   surfaceNormalOnTorus,
   surfacePointOnTorus,
+  tonnetzContinuousIjFromTorusUv,
 } from "./tonnetz.js";
 
 const GRID_I = 12;
@@ -454,12 +455,11 @@ function TorusScene() {
         const torusHits = raycaster.intersectObject(torus, false);
         if (torusHits.length === 0 || !torusHits[0].uv) return;
         const uv = torusHits[0].uv;
-        const iRaw = uv.x * GRID_I;
-        const jRaw = uv.y * GRID_J;
-        const i0 = Math.floor(iRaw);
-        const j0 = Math.floor(jRaw);
-        const fi = iRaw - i0;
-        const fj = jRaw - j0;
+        const { iCont, jCont } = tonnetzContinuousIjFromTorusUv(uv, GRID_I, GRID_J);
+        const i0 = Math.floor(iCont);
+        const j0 = Math.floor(jCont);
+        const fi = iCont - i0;
+        const fj = jCont - j0;
 
         const wrapI = (x) => ((x % GRID_I) + GRID_I) % GRID_I;
         const wrapJ = (x) => ((x % GRID_J) + GRID_J) % GRID_J;

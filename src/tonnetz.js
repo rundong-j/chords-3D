@@ -136,6 +136,25 @@ export function runTonnetzDevAssertions(graph) {
       "directed triangle closes in Z"
     );
   }
+
+  let iSize = 0;
+  let jSize = 0;
+  for (const n of graph.nodes.values()) {
+    iSize = Math.max(iSize, n.i + 1);
+    jSize = Math.max(jSize, n.j + 1);
+  }
+  if (iSize > 0 && jSize > 0) {
+    for (const n of graph.nodes.values()) {
+      if ((n.i + n.j) % 3 !== 0) continue;
+      const uv = tonnetzUnitUvFromIj(n.i, n.j, iSize, jSize);
+      const { iCont, jCont } = tonnetzContinuousIjFromTorusUv(uv, iSize, jSize);
+      console.assert(
+        Math.abs(iCont - n.i) < 0.02 && Math.abs(jCont - n.j) < 0.02,
+        "tonnetz UV ↔ ij roundtrip",
+        { n, uv, iCont, jCont }
+      );
+    }
+  }
 }
 
 /**
@@ -206,6 +225,34 @@ export function surfaceFrameOnTorus(i, j, iSize, jSize, outX, outY, outZ) {
 
   outX.set(dux, duy, duz).normalize();
   outY.crossVectors(outZ, outX).normalize();
+}
+
+const UV_IJ_EPS = 1e-6;
+
+/**
+ * Inverse of {@link torusAngles} for hit testing. `TorusGeometry` UV matches
+ * vertex generation: major-ring angle u = uv.x·2π, tube angle v = uv.y·2π.
+ * Tonnetz uses u = 2π·(i + j·{@link FIFTH_RING_U_OFFSET_PER_ROW})/iSize and v = 2π·j/jSize,
+ * so ij space is skewed: continuous i = (u/2π)·iSize − α·j (with α = offset), not uv.x·iSize alone.
+ *
+ * @param {{ x: number, y: number }} uv Interpolated UV from raycast (same convention as Three.js torus).
+ * @returns {{ iCont: number, jCont: number }} Continuous indices; integer corners use floor as before.
+ */
+export function tonnetzContinuousIjFromTorusUv(uv, iSize, jSize) {
+  let jCont = uv.y * jSize;
+  if (jCont <= 0) jCont = 0;
+  else if (jCont >= jSize) jCont = jSize - UV_IJ_EPS;
+  const rawI = uv.x * iSize - FIFTH_RING_U_OFFSET_PER_ROW * jCont;
+  const iCont = ((rawI % iSize) + iSize) % iSize;
+  return { iCont, jCont };
+}
+
+/** Unit UV at a Tonnetz node (for dev checks); wraps u into [0,1). */
+export function tonnetzUnitUvFromIj(i, j, iSize, jSize) {
+  const uNorm = (i + j * FIFTH_RING_U_OFFSET_PER_ROW) / iSize;
+  const x = uNorm - Math.floor(uNorm);
+  const y = j / jSize;
+  return { x, y };
 }
 
 export const NOTE_NAMES_SHARP = [
