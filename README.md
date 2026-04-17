@@ -57,12 +57,23 @@ npm run preview
 Vite is configured to bind to all interfaces (`0.0.0.0`).
 Use the network URL shown by Vite (for example `http://10.0.0.5:5173`).
 
+## Deployment (GitHub Pages)
+
+The repo uses **GitHub Actions** to build and publish the Vite `dist` output.
+
+- **Live site:** [https://rundong-j.github.io/chords-3D/](https://rundong-j.github.io/chords-3D/)
+- **Workflow:** [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml) — runs on pushes to `main` (`npm ci` → `npm run build` → deploy `dist`).
+- **Vite `base`:** production builds use `base: '/chords-3D/'` in [`vite.config.js`](vite.config.js) so asset URLs resolve under the project Pages path.
+
+In the GitHub repo, set **Settings → Pages → Build and deployment → Source: GitHub Actions** (not “Deploy from a branch”). If the page is blank with 404s for `/src/main.js`, Pages is serving the wrong tree — the Actions deploy must succeed so the built `index.html` (with hashed assets under `/chords-3D/assets/`) is what gets published.
+
 ## Project Structure
 
 - `src/main.js` - scene setup, graph rendering, interaction, UI
 - `src/tonnetz.js` - Tonnetz graph logic + torus math helpers
 - `src/style.css` - app and UI styling
-- `vite.config.js` - dev/preview host + ports
+- `vite.config.js` - dev/preview host, ports, and production `base` for Pages
+- `.github/workflows/deploy-pages.yml` - GitHub Pages build and deploy
 
 ## Notes
 
