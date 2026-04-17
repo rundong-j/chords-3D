@@ -27,6 +27,8 @@ const LABEL_TEXT_NORMAL = "#111111";
 const LABEL_TEXT_ACTIVE = "#0d9488";
 const LABEL_FLASH_NOTE_MS = 380;
 const LABEL_FLASH_CHORD_MS = 520;
+/** Barycentric weight at a triangle corner required to treat tap as that label (not the triad). */
+const LABEL_NOTE_BARY_THRESHOLD = 0.55;
 const LINE_SURFACE_EPS = 0.002;
 const LABEL_SURFACE_EPS = 0.002;
 const EDGE_CURVE_STEPS = 12;
@@ -442,18 +444,20 @@ function TorusScene() {
         pointerNdc.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
         raycaster.setFromCamera(pointerNdc, camera);
         const labelMeshes = labelEntries.map((entry) => entry.mesh);
-        const hits = raycaster.intersectObjects(labelMeshes, false);
-        if (hits.length > 0) {
-          const hit = labelEntries.find((entry) => entry.mesh === hits[0].object);
-          if (hit) {
-            flashLabelEntry(hit, LABEL_FLASH_NOTE_MS);
-            playPitch(hit.pc);
+
+        const torusHits = raycaster.intersectObject(torus, false);
+        if (torusHits.length === 0 || !torusHits[0].uv) {
+          const orphanLabels = raycaster.intersectObjects(labelMeshes, false);
+          if (orphanLabels.length > 0) {
+            const hit = labelEntries.find((entry) => entry.mesh === orphanLabels[0].object);
+            if (hit) {
+              flashLabelEntry(hit, LABEL_FLASH_NOTE_MS);
+              playPitch(hit.pc);
+            }
           }
           return;
         }
 
-        const torusHits = raycaster.intersectObject(torus, false);
-        if (torusHits.length === 0 || !torusHits[0].uv) return;
         const uv = torusHits[0].uv;
         const { iCont, jCont } = tonnetzContinuousIjFromTorusUv(uv, GRID_I, GRID_J);
         const i0 = Math.floor(iCont);
@@ -483,6 +487,33 @@ function TorusScene() {
                 [wrapI(i0 + 1), wrapJ(j0)],
                 [wrapI(i0), wrapJ(j0 + 1)],
               ];
+
+        const upperTri = fi + fj > 1;
+        const cornerBaryWeight = new Map();
+        if (!upperTri) {
+          cornerBaryWeight.set(key(i0, j0), 1 - fi - fj);
+          cornerBaryWeight.set(key(i0 + 1, j0), fi);
+          cornerBaryWeight.set(key(i0, j0 + 1), fj);
+        } else {
+          cornerBaryWeight.set(key(i0 + 1, j0 + 1), fi + fj - 1);
+          cornerBaryWeight.set(key(i0 + 1, j0), 1 - fj);
+          cornerBaryWeight.set(key(i0, j0 + 1), 1 - fi);
+        }
+
+        const labelHits = raycaster.intersectObjects(labelMeshes, false);
+        const labelHit =
+          labelHits.length > 0
+            ? labelEntries.find((entry) => entry.mesh === labelHits[0].object)
+            : null;
+        if (labelHit) {
+          const w = cornerBaryWeight.get(key(labelHit.i, labelHit.j));
+          if (w !== undefined && w > LABEL_NOTE_BARY_THRESHOLD) {
+            flashLabelEntry(labelHit, LABEL_FLASH_NOTE_MS);
+            playPitch(labelHit.pc);
+            return;
+          }
+        }
+
         for (const [ti, tj] of triVertices) {
           const corner = labelEntries.find((e) => e.i === ti && e.j === tj);
           flashLabelEntry(corner, LABEL_FLASH_CHORD_MS);
