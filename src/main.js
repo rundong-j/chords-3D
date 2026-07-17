@@ -5,6 +5,12 @@ import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import {
+  createDeviceOrientationSession,
+  isDeviceOrientationAvailable,
+  requiresOrientationPermissionPrompt,
+  requestOrientationPermission,
+} from "./deviceOrientationSession.js";
+import {
   buildTonnetzGraph,
   formatPitchClass,
   pc as mod12,
@@ -121,12 +127,42 @@ function TorusScene() {
   let labelFlashTimeouts = new Map();
   let audioCtx;
   let pointerHandler;
+  /** Phase 1: smoothed phone orientation (no chord mapping yet). */
+  let orientationSession = null;
 
   const sceneState = {
     autoRotate: false,
     edges: { p5: true, m3: true, M3: true },
     notation: "sharp",
+    phoneChordsEnabled: false,
+    /** @type {{ alpha: number | null, beta: number | null, gamma: number | null, raw?: object } | null} */
+    orientationAngles: null,
+    /** Short message when permission denied or API missing. */
+    orientationHint: null,
   };
+
+  function stopPhoneOrientation() {
+    orientationSession?.stop();
+    orientationSession = null;
+  }
+
+  function startPhoneOrientation() {
+    stopPhoneOrientation();
+    orientationSession = createDeviceOrientationSession({
+      onUpdate: (data) => {
+        sceneState.orientationAngles = data;
+        m.redraw();
+      },
+    });
+    orientationSession.start();
+  }
+
+  function formatOrientationDebug(data) {
+    if (!data) return "Waiting for motion…";
+    const q = (n) =>
+      n == null || Number.isNaN(Number(n)) ? "—" : `${Number(n).toFixed(1)}°`;
+    return `α ${q(data.alpha)}  β ${q(data.beta)}  γ ${q(data.gamma)}`;
+  }
 
   const vPos = new THREE.Vector3();
   const vx = new THREE.Vector3();
@@ -527,6 +563,7 @@ function TorusScene() {
       loop();
     },
     onremove() {
+      stopPhoneOrientation();
       for (const id of labelFlashTimeouts.values()) {
         clearTimeout(id);
       }
@@ -652,6 +689,57 @@ function TorusScene() {
                 ]
               )
             ),
+            isDeviceOrientationAvailable()
+              ? m("div.phone-chords", [
+                  m(
+                    "label.phone-chords-toggle",
+                    {
+                      title:
+                        "Uses device tilt (HTTPS required on iPhone). Phase 1: debug readout only.",
+                    },
+                    m("input[type=checkbox]", {
+                      checked: sceneState.phoneChordsEnabled,
+                      async onchange(e) {
+                        sceneState.orientationHint = null;
+                        if (!e.currentTarget.checked) {
+                          sceneState.phoneChordsEnabled = false;
+                          sceneState.orientationAngles = null;
+                          stopPhoneOrientation();
+                          m.redraw();
+                          return;
+                        }
+                        if (requiresOrientationPermissionPrompt()) {
+                          const ok = await requestOrientationPermission();
+                          if (!ok) {
+                            sceneState.orientationHint =
+                              "Motion permission denied.";
+                            e.currentTarget.checked = false;
+                            m.redraw();
+                            return;
+                          }
+                        }
+                        sceneState.phoneChordsEnabled = true;
+                        startPhoneOrientation();
+                        m.redraw();
+                      },
+                    }),
+                    "Phone chords"
+                  ),
+                  sceneState.phoneChordsEnabled &&
+                    m(
+                      "span.phone-orientation-debug",
+                      formatOrientationDebug(sceneState.orientationAngles)
+                    ),
+                  sceneState.orientationHint &&
+                    m(
+                      "span.phone-orientation-hint",
+                      sceneState.orientationHint
+                    ),
+                ])
+              : m(
+                  "span.phone-orientation-unsupported",
+                  "Motion API unavailable (desktop / unsupported browser)"
+                ),
           ])
         ),
         m("div.canvas-host")

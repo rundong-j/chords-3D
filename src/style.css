@@ -107,6 +107,46 @@ body {
   padding: 0.2rem 0.35rem;
 }
 
+.phone-chords {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.65rem;
+  font-size: 0.8125rem;
+}
+
+.phone-chords-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #c4c9d2;
+  cursor: pointer;
+  user-select: none;
+}
+
+.phone-chords-toggle input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: #6b8afd;
+}
+
+.phone-orientation-debug {
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
+  color: #9aa3af;
+  white-space: nowrap;
+}
+
+.phone-orientation-hint {
+  font-size: 0.75rem;
+  color: #f472b6;
+}
+
+.phone-orientation-unsupported {
+  font-size: 0.75rem;
+  color: #7a828e;
+}
+
 .canvas-host {
   flex: 1;
   min-height: 0;
